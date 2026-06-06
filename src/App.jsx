@@ -1,4 +1,6 @@
 import { useState, useMemo, useRef } from "react";
+import { useEffect } from "react";
+import { supabase } from "./supabaseClient";
 
 /* ═══════════════════════════════════════════════════════════════════════════
    DADOS CONSTANTES
@@ -575,6 +577,10 @@ function ModalPDF({ordens, selecionadas, onClose}) {
 /* ═══════════════════════════════════════════════════════════════════════════
    APP
 ═══════════════════════════════════════════════════════════════════════════ */
+
+
+
+
 export default function App() {
   const [ordens,setOrdens]   = useState([]);
   const [view,setView]       = useState("dashboard");
@@ -588,7 +594,24 @@ export default function App() {
   const [selectMode,setSelectMode] = useState(false);
   const [selecionados,setSelecionados] = useState(new Set());
   const [showPDFSel,setShowPDFSel] = useState(false);
+useEffect(() => {
+  async function carregarOS() {
 
+    const { data, error } = await supabase
+      .from('ordens_servico')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error(error);
+      return;
+    }
+
+    setOrdens(data || []);
+  }
+
+  carregarOS();
+}, []);
   const P = patch => setForm(f=>({...f,...patch}));
   const hoje = new Date().toISOString().split("T")[0];
 
@@ -613,15 +636,71 @@ export default function App() {
 
   const novaOS = () => { setForm({...FORM_ZERO,numero:seqOS(ordens),data:hoje,ria_atividades:ATIVIDADES_RIA_PADRAO.map(a=>({label:a,feito:false}))}); setEditing(null); setView("form"); };
   const editOS = os => { setForm({...os, ria_atividades: os.ria_atividades||ATIVIDADES_RIA_PADRAO.map(a=>({label:a,feito:false}))}); setEditing(os.id); setView("form"); };
-  const salvar = () => {
-    if(!form.cliente||!form.tipo||!form.equipamento||!form.tecnico) return;
-    editing
-      ? setOrdens(p=>p.map(o=>o.id===editing?{...form,id:editing}:o))
-      : setOrdens(p=>[{...form,id:uid()},...p]);
-    setView("lista"); setEditing(null);
-  };
-  const excluir = id => { if(window.confirm("Excluir esta OS?")){ setOrdens(p=>p.filter(o=>o.id!==id)); if(detId===id)setView("lista"); }};
-  const verDet  = os => { setDetId(os.id); setView("detalhe"); };
+  const salvar = async () => {
+  if (!form.cliente || !form.tipo || !form.equipamento || !form.tecnico) return;
+
+  try {
+
+    if (editing) {
+
+      const { error } = await supabase
+        .from('ordens_servico')
+        .update(form)
+        .eq('id', editing);
+
+      if (error) throw error;
+
+      setOrdens(p =>
+        p.map(o => o.id === editing ? { ...form, id: editing } : o)
+      );
+
+    } else {
+
+      const nova = {
+        ...form,
+        id: crypto.randomUUID()
+      };
+
+      const { error } = await supabase
+        .from('ordens_servico')
+        .insert([nova]);
+
+      if (error) throw error;
+
+      setOrdens(p => [nova, ...p]);
+    }
+
+    setView("lista");
+    setEditing(null);
+
+  } catch (err) {
+    console.error(err);
+    alert("Erro ao salvar: " + err.message);
+  }
+};
+
+  const excluir = async (id) => {
+
+  if (!window.confirm("Excluir esta OS?")) return;
+
+  const { error } = await supabase
+    .from('ordens_servico')
+    .delete()
+    .eq('id', id);
+
+  if (error) {
+    console.error(error);
+    alert(error.message);
+    return;
+  }
+
+  setOrdens(p => p.filter(o => o.id !== id));
+
+  if (detId === id) {
+    setView("lista");
+  }
+};
+const verDet  = os => { setDetId(os.id); setView("detalhe"); };
   const det     = ordens.find(o=>o.id===detId);
   const ok      = form.cliente&&form.tipo&&form.equipamento&&form.tecnico;
 
@@ -636,6 +715,7 @@ export default function App() {
     <div style={{fontFamily:"var(--mono)",fontSize:24,fontWeight:600,color:c,lineHeight:1,letterSpacing:-1}}>{v}</div>
     <div style={{fontSize:10,color:"var(--ghost)",marginTop:5,fontWeight:600,letterSpacing:1.5,textTransform:"uppercase"}}>{l}</div>
   </div>;
+
 
   return <>
     <style>{CSS}</style>
